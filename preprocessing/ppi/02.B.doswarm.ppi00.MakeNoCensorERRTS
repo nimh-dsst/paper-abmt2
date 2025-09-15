@@ -1,0 +1,52 @@
+#!/bin/tcsh
+# 02/20/16 - Lauren White.
+# 09/15/15 - Jillian Lee Wiggins, Richard Reynolds
+# 01/03/17 - David Pagliaccio
+# 05/24/18 - Julia Linke
+
+########################################################################################################################
+# SCRIPT SUMMARY
+########################################################################################################################
+# This script was written to go through all subjects, create a swarm script, and execute it
+# It calls h3.ppi00.MakeNoCensorERRTS, which creates individual level models without censoring, but including 6 motion parameters.
+#Run this file in the command line. It will create log files for each person and one swarm file that will run the log files for all the subjects.  
+
+# USAGE: tcsh 03.doswarm.ppi00.MakeNoCensorERRTS
+
+#######################################################################################################################
+# SPECIFY YOUR LOCATIONS AND SUBJECTS
+#######################################################################################################################
+
+#list of all subjects
+set subjects = ( sub-001 sub-002 ) 
+
+set visitlist = ( ses-1 ses-1 )
+
+
+# Specify the top-most directory associated with the study
+set topdir = /top/most/directory 
+
+#Specify log and swarm file info
+set scriptdir = $topdir/code/ppi
+set swarmfile = h2.B.ppi00.MakeNoCensorERRTS.swarm
+set procscript = h2.B.ppi00.MakeNoCensorERRTS
+
+# create empty swarm file
+echo -n "" > $swarmfile
+
+# For each of the subjects, specified in the subjects list...
+set i = 1
+foreach subj ( $subjects )
+set visit = $visitlist[$i]
+
+set subjdata = $topdir/data_23_ap_task_NL/$subj/$visit
+
+# Create a command for the swarm file for each person
+   # this line will be echoed into a swarm file. 
+   # When you run the swarm file it will run the proc script (extracting ROIs for seed/creating ppi reg)
+   echo "cd ${scriptdir}; tcsh -xef ${procscript} $subj $visit >> ${procscript}.output" >> $swarmfile
+@ i++
+end
+
+#swarm -t auto -g 8 --module R,afni --usecsh -f $swarmfile --partition norm
+#rm ${swarmfile} 

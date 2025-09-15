@@ -1,0 +1,265 @@
+#!/bin/tcsh
+# 09/15/15 - Jillian Lee Wiggins, Rick Reynolds
+# 09/27/17 - Andrea Gold
+# 05/25/18 - Julia Linke
+# 02/10/20 - Reut Naim
+
+#######################################################
+# SCRIPT SUMMARY
+#######################################################
+
+# This script requires:
+# 1) You have run an intial regression analysis on your data to generate UNCENSORED errts files 
+#    (via afni proc and then 3dDeconvolve or 3dTproject)
+# 2) ROI mask of your seed region in the same dimensions as your functional data (i.e., 2.5x2.5x2.5) 
+#    and in standard space (also mask your seed by any mask you use in your analysis, e.g., GM+90 mask)
+#    3dresample -dxyz 2.5 2.5 2.5 -prefix ${ROI}_resampled -inset ${ROI}
+# 3) A 1D file depicting a gamma variate hemodynamic response function "HRF" (e.g., x.block.1D)
+# 4) You must have all runs of equal length; if runs vary in length this script will not work!
+
+############################################################################################
+# GENERAL SETUP
+############################################################################################
+
+######################################################
+# SPECIFY YOUR TASK, GROUP, AND FILE LOCATIONS
+######################################################
+ 
+# get these from swarm file
+set subj  = $argv[1]
+set visit = $argv[2]
+set ROI = $argv[3]
+
+# set this up for timing/onset naming file structure.
+# for TAU, it is really important to have the subj2 variable since the onset labels dont have "_2" 
+# in the name; they # just have the visit number.
+#set subj2 = `echo $subj | sed 's/_2//g'`
+
+# Specify the top-most directory associated with the study.
+set topdir = /top/most/directory
+
+# Specify conditions
+set cond_list = (congruent incongruent neutral error)
+
+# Number of runs
+set nruns = 2
+
+# TRs per run
+set NT    = 180 
+set runTRs = ( $NT $NT )
+# When stimulus events are not TR-locked, you must interpolate values at each TR into the appropriate 
+# number of bins.  
+# In this case:
+# Upsampled TR = 0.1s 
+# TR = 2.3 s
+# Therefore each TR needs to be divided into 23 time bins, each corresponding to 0.1 s
+# TR (in ms) / 100
+# 2.3 / 100
+set nup = 23
+
+######################################################
+# SET SEED ROI NAME AND MASK FILE LOCATION
+######################################################
+
+# Specify the directory where the ROI mask is located
+set ROIdir = ${topdir}/code/ppi_code/masks
+
+
+############################################################################################
+# THE ANALYSIS SCRIPT BEGINS HERE
+############################################################################################
+
+######################################################
+# NAVIGATE TO PROPER LOCATION, AND FINISH SET-UP
+######################################################
+
+# Specify the directory where subjects' preprocessed neuroimaging data are located
+set prefix = nocensor
+set subjbase = $topdir/data_23_ap_task_NL/$subj/$visit
+set subjdata = $subjbase/$subj.results.NoCensor
+set ppidir = $subjbase/gPPI_new
+
+if ( ! -d $subjdata ) then
+   echo "** missing subject directory $subjdata"
+   exit 1
+endif
+
+cd $subjbase 
+## hashtag out below lines if, else, and endif. Run LAmy first, then put lines 89, 91, 92 back in and run RAmy
+if ( ! -d "gPPI_new") then
+mkdir gPPI_new
+else echo "gPPI_new folder already exists for ${subj}"
+endif
+
+#get this info from the doswarmscript.
+echo $ROI
+
+echo ""
+echo "== processing subject $subj, ROI $ROI"
+
+
+# Specify the directory where the stimulus timing/onset files are located
+set stimonsetdir = $topdir/data_15_timing
+# Specify where you will get the errts
+set inputresults = $subjdata
+# Specify the parent directory where individual subject analysis results will be written
+set results = $ppidir/$ROI
+
+cd $ppidir
+
+if (-d "${ROI}") then
+rm -rf ${ROI}/
+echo "${ROI} already exists for ${subj}, deleting now and creating new $ROI directory"
+else echo "${ROI} doesn't exist for ${subj}, creating new $ROI directory"
+endif
+
+mkdir -p $results
+
+cd $results
+
+######################################################
+# 00. BINARIZE & UPSAMPLE: GENERATE 1D FILE THAT CODES STIMULI YOU WANT TO CONTRAST AND UPSAMPLES TIMING
+#####################################################
+# for stim length timing files start at face onset. so face onset is 500ms +1000ms probe which is 1500ms. 
+# There is an ITI (ranging from 250-750), but that is not included in this PPI.
+
+# for TAU really important that I have the subj2 variable since the onset labels dont have "_2" in the name;
+# they just have the visit number.
+# -run_len 414 = specify the length of your run 
+# 184 TRs total per run
+# 4 TRs subtracted from start of the run to account for field inhomogenity
+# 180 TRs remain
+# TR = 2.3 sec
+# 180 x 2.3 sec = 414  sec
+# -min_frac = fraction of time stimulus must be present during upsampled TR in order to be coded 1 (e.g., 30%)
+# timing_to_1D = specifies name of the output file
+
+   echo "== running timing_tool.py to create per-run timing files"
+   
+foreach cond ( $cond_list )
+
+        timing_tool.py -timing $stimonsetdir/${subj}_${visit}_task-TAU_${cond}.1D -tr 0.1   \
+		       -min_frac 0.3 -run_len 414 -stim_dur 1.5 		\
+		       -timing_to_1D 00a.${subj}.${cond}.upsam -per_run_file
+
+	# first output file might have name: 00a.$subj.$cond.upsam_r$run.1D
+   end
+
+
+############################################################################################
+# CREATE A SINGLE, UPSAMPLED 1D FILE IN COLUMN FORMAT, THAT CONTAINS AN HRF DECONVOLVED TIME SERIES DATA FROM THE SEED ROI
+############################################################################################
+
+######################################################
+# 01. EXTRACT A TIME SERIES FOR THE SEED ROI FROM EACH SUBJECT'S PREPROCESSED NEUROIMAGING DATA
+######################################################
+
+set bb = 0
+@   tt = $NT - 1
+foreach run ( `count -digits 1 1 $nruns` )  
+     # extract from bottom to top index from each run
+     3dmaskave -quiet -mask $ROIdir/$ROI+tlrc $subjdata/errts.$subj.$prefix+tlrc"[$bb..$tt]" \
+	       > 01a.${subj}.${ROI}.run${run}.Seed.1D
+     @ bb += $NT
+     @ tt += $NT
+end    
+
+# now combine the runs into one file. 
+# This 01b file is the seed time series to use in the PPI GLM in script ppi02    
+cat 01a.${subj}.${ROI}.run*.Seed.1D > 01b.${subj}.${ROI}.Seed.1D
+
+######################################################
+# 02. UPSAMPLE (upsam) SEED ROI TIME SERIES FOR STIMULI WITH DURATION THAT ID NOT = TR DURATION
+######################################################
+
+foreach run ( `count -digits 1 1 $nruns` )
+	1dUpsample $nup 01a.${subj}.${ROI}.run${run}.Seed.1D \
+		> 02.${subj}.${ROI}.run${run}.Seed.upsam.1D 
+end
+
+# If you plot 02*, the X axis is in TRs (268*3) times 23 (because you chose the time-step of 0.1s)
+# The shape should look identical to 01a*
+# If you look at the actual values of 02*, you will see that the first value corresponds to the 
+# first value of 01a*, and the 24th (because we are upsampling to 23) corresponds to the second 
+# value of 02*.  
+# The values in between provide a smooth fit betweeen points
+
+######################################################
+# 03. DECONVOLVE (deconv) UPSAMPLED SEED ROI TIME SERIES WITH HRF MATCHING TASK MODEL 
+######################################################
+
+
+######################################################
+# SET HRF - match HRF in task GLM
+######################################################
+
+set HRF = ${topdir}/code/ppi_code/masks/GammaHRF.1D
+
+foreach run ( `count -digits 1 1 $nruns` )
+    # note input and deconvolved variables
+     3dTfitter -RHS 02.${subj}.${ROI}.run${run}.Seed.upsam.1D	\
+	      -FALTUNG ${HRF} rm.temp.1D 012 -2 -l2lasso -6			
+    1dtranspose rm.temp.1D > 03.${subj}.${ROI}.run${run}.Seed.upsam.decon.1D
+    rm rm.temp.1D
+end
+
+###########################################################################################
+# PUT IT ALL TOGETHER ...
+############################################################################################
+
+######################################################
+# 04 CREATE UPSAMPLED DECONVOLVED PPI using the seed in neurological timing[Seed.upsam.decon.1D]: 
+# (i.e., SEED*COND or seed_cond)
+# 05 RECONVOLVE THE INTERACTION TERM WITH HRF TO ISOLATE NEURAL RESPONSE TO STIMULUS 
+# (3dTFitter took out $HRF function, and waver puts it back in but restricted to the interval for a 
+# given task condition)
+# 06 CONCATENATE ACROSS RUNS
+######################################################
+
+@ ntrs = $NT * $nup
+foreach cond ( $cond_list )
+  foreach run ( `count -digits 1 1 $nruns` )
+    # note binary event input, condition, decon, binary decon, waver variables
+
+    set cond_file  = 00a.$subj.$cond.upsam_r0$run.1D
+    set seed_decon = 03.${subj}.${ROI}.run${run}.Seed.upsam.decon.1D
+    set seed_cond  = 04.${subj}.${ROI}.$cond.run${run}.Seed.upsam.decon.cond.1D
+    set waver_rslt = 05.${subj}.${ROI}.${cond}.run${run}.PPI.upsam.reconv.1D
+
+echo "running waver for $cond, $run, ntrs = $ntrs"
+
+    1deval -a ${seed_decon} -b ${cond_file} -expr 'a*b' > $seed_cond
+
+    waver -FILE 0.1 $HRF -input $seed_cond -numout $ntrs > $waver_rslt
+  end
+
+  cat 05.$subj.$ROI.$cond.run*.PPI.upsam.reconv.1D \
+      > 06.$subj.$ROI.$cond.rall.PPI.upsam.reconv.1D
+end
+
+######################################################
+# 07. DOWNSAMPLE INTERACTION TERM TO ORIGINAL TR RESOLUTION
+######################################################
+
+    # Extract every 23rd value from the interaction term
+    # Results in one value for each orignial TR duration (2.3 sec)
+
+
+foreach cond ( $cond_list )
+
+echo "creating 07.${subj}.${ROI}.${cond}.rall.PPI.reconv.1D"  
+
+1dcat 06.${subj}.${ROI}.${cond}.rall.PPI.upsam.reconv.1D'{0..$('$nup')}' > 07.${subj}.${ROI}.${cond}.rall.PPI.reconv.1D
+ 
+end
+
+echo ""
+echo "PPI regs for this subject:"
+ls -1 07.$subj* 01b.${subj}.${ROI}.Seed.1D
+echo ""
+
+# ** You will use this 07 as PPI regressor file in your regression analysis:
+# 1 file per condition of interest **
+
+## SEED: 01b.${subj}.${ROI}.Seed.1D
+

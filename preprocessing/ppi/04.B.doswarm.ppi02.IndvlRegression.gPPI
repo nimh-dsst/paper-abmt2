@@ -1,0 +1,62 @@
+#!/bin/tcsh
+
+# 02/20/16 - Lauren White.
+# 09/15/15 - Jillian Lee Wiggins, Richard Reynolds
+# 01/03/17 - David Pagliaccio
+# 05/24/18 - Julia Linke
+# 02/10/20 - Reut Naim
+
+########################################################################################################################
+# SCRIPT SUMMARY
+########################################################################################################################
+# This script was written to go through all subjects, create a swarm script, and execute it
+# It calls h5.ppi02.IndvlRegression.gPPI, which extracts ROI seed and creates PPI reg.
+# Run this file in the command line. It will create log files for each person and one swarm file that will run the log files for all the subjects.  
+
+# USAGE: tcsh 05.doswarm.ppi02.IndvlRegression.gPPI
+
+######################################################
+# SPECIFY YOUR LOCATIONS AND SUBJECTS
+######################################################
+
+#list of all subjects
+set subjects = ( sub-001 sub-002 ) 
+
+set visitlist = ( ses-1 ses-1 )
+
+
+##RUN LAmy FIRST, THEN RAmy!!!!!#####
+set ROIs = (LAmy_50_resampled_mask_gpEPImask.0.9.FINAL_ses-1) #Run this first, then RAmy and change swarm name below
+#set ROIs = (RAmy_50_resampled_mask_gpEPImask.0.9.FINAL_ses-1) #unhashtag lines in h4 script before running RAmy!!!
+
+# Specify the top-most directory associated with the study
+set topdir = /top/most/directory
+
+#Specify log and swarm file info
+set scriptdir = $topdir/code/ppi_code
+set swarmfile = h4.B.ppi02.IndvlRegression.gPPI_RAmy_ses-2.swarm
+set procscript = h4.B.ppi02.IndvlRegression.gPPI
+
+# create empty swarm file
+echo -n "" > $swarmfile
+
+# For each of the subjects, specified in the subjects list...
+set i = 1
+foreach subj ( $subjects )
+set visit = $visitlist[$i]
+
+
+   foreach ROI ( $ROIs )
+
+   # Create a command for the swarm file for each person
+   # This line will be echoed into a swarm file. 
+   # When you run teh swarm file it will run the proc script (extracting ROIs for seed/creating ppi reg)
+        echo "cd ${scriptdir}; tcsh -xef ${procscript} $subj $visit $ROI >> ${procscript}.output" >> $swarmfile
+   end
+@ i++
+end
+
+#run swarm
+#swarm -t auto -g 8  --usecsh -f $swarmfile --partition norm
+
+#rm ${swarmfile} 

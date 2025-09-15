@@ -1,0 +1,115 @@
+#!/bin/tcsh
+# 05/24/18 - Julia Linke
+# 02/10/20 -Reut Naim
+
+#######################################################
+# SCRIPT SUMMARY
+#######################################################
+# This script was written to run 3dDeconvolve PPI analyses on Biowulf 
+# Adapted for TAU
+# DO NOT RUN THIS DIRECTLY. IT WILL BE CALLED BY SWARM SCRIPT 
+# (05.doswarm.ppi02.IndvlRegression.gPPI_linearGLT.Morphs)
+
+############################################################################################
+# GENERAL SETUP
+############################################################################################
+
+######################################################
+# SPECIFY YOUR LOCATIONS AND SUBJECTS
+######################################################
+set subj = $argv[1]
+set visit = $argv[2]
+set ROI = $argv[3]
+
+
+# Specify the top-most directory associated with the study.
+set topdir = /top/most/directory
+
+############################################################################################
+# THE ANALYSIS SCRIPT BEGINS HERE
+############################################################################################
+
+######################################################
+# NAVIGATE TO PROPER LOCATION, AND FINISH SET-UP
+######################################################
+    set subjbase = $topdir/data_23_ap_task_NL/$subj/$visit
+    # Specify the parent directory where individual subject afni_proc results are stored
+    set motdata = $subjbase/$subj.results
+    # Specify the parent directory where non censored data are stored
+    set subjdata = $subjbase/$subj.results.NoCensor
+    # Specify the  directory where onset times are saved
+    set onsets = $topdir/data_15_timing
+    #Specify prefix for ppi results. 
+    set prefix = ppi
+
+    # Specify directory for raw input data 
+    set subj_inputdir  = $topdir/data_23_ap_task_NL/$subj/$visit
+    # Specify directory where PPI regressors (07* files) and seed (01b*) files are stored
+    set ppidir = $subjbase/gPPI_new/$ROI
+
+
+set censorLimit = 1
+set suffix   = ${censorLimit}mmOutlierCensored
+##hashtag out lines below if, else, and endif before running LAmy. Then uncomment out for running RAmy after running LAmy
+if ( ! -d "${subjbase}/${subj}.results.$suffix") then
+mkdir ${subjbase}/${subj}.results.$suffix
+else echo "${subjbase}/${subj}.results.$suffix folder already exists for ${subj}"
+endif
+
+cd ${subjbase}/${subj}.results.$suffix
+
+set prefix_3dd = revised.PPI.${ROI}
+
+##############################################################################################
+# Run the regression analysis
+##############################################################################################
+
+3dDeconvolve -input $motdata/pb05.$subj.r*.scale+tlrc.HEAD \
+    -censor $motdata/censor_${subj}_combined_2.1D \
+    -polort 3 \
+    -local_times \
+    -num_stimts 15 \
+    -stim_times 1 $onsets/${subj}_${visit}_task-TAU_congruent.1D 'GAM' \
+    -stim_label 1 congruent \
+    -stim_times 2 $onsets/${subj}_${visit}_task-TAU_incongruent.1D 'GAM' \
+    -stim_label 2 incongruent \
+    -stim_times 3 $onsets/${subj}_${visit}_task-TAU_error.1D 'GAM' \
+    -stim_label 3 incorrect \
+    -stim_times 4 $onsets/${subj}_${visit}_task-TAU_neutral.1D 'GAM' \
+    -stim_label 4 neutral \
+    -stim_file 5 $ppidir/07.$subj.$ROI.congruent.rall.PPI.reconv.1D \
+    -stim_label 5 congruent.gPPI \
+    -stim_file 6 $ppidir/07.$subj.$ROI.incongruent.rall.PPI.reconv.1D \
+    -stim_label 6 incongruent.gPPI \
+    -stim_file 7 $ppidir/07.$subj.$ROI.error.rall.PPI.reconv.1D \
+    -stim_label 7 incorrect.gPPI \
+    -stim_file 8 $ppidir/07.$subj.$ROI.neutral.rall.PPI.reconv.1D \
+    -stim_label 8 neutral.gPPI \
+    -stim_file 9 $ppidir/01b.$subj.$ROI.Seed.1D \
+    -stim_label 9 Seed \
+    -stim_file 10 $motdata/motion_demean.1D'[0]' -stim_base 10 -stim_label 10 roll \
+    -stim_file 11 $motdata/motion_demean.1D'[1]' -stim_base 11 -stim_label 11 pitch \
+    -stim_file 12 $motdata/motion_demean.1D'[2]' -stim_base 12 -stim_label 12 yaw \
+    -stim_file 13 $motdata/motion_demean.1D'[3]' -stim_base 13 -stim_label 13 dS \
+    -stim_file 14 $motdata/motion_demean.1D'[4]' -stim_base 14 -stim_label 14 dL \
+    -stim_file 15 $motdata/motion_demean.1D'[5]' -stim_base 15 -stim_label 15 dP \
+    -GOFORIT 99                                                          \
+    -allzero_OK                                                          \
+    -num_glt 3 \
+    -gltsym 'SYM: +1*incongruent.gPPI -1*congruent.gPPI' -glt_label 1 gPPI.incongruent.Vs.congruent \
+    -gltsym 'SYM: +0.5*congruent.gPPI +0.5*incongruent.gPPI -1*neutral.gPPI' -glt_label 2 gPPI.congruent.and.incongruent.Vs.Neutral \
+    -gltsym 'SYM: +0.33333*congruent.gPPI +0.33333*incongruent.gPPI +0.33333*neutral.gPPI' -glt_label 3 gPPI.congruent.incongruent.and.Neutral \
+    -xsave \
+    -jobs 6 \
+    -cbucket cbucket.stats.${subj} \
+    -fout -tout -x1D ${prefix_3dd}X.xmat.1D -xjpeg ${prefix_3dd}X.jpg \
+    -x1D_uncensored ${prefix_3dd}X.nocensor.xmat.1D \
+    -fitts ${prefix_3dd}fitts.$subj \
+    -errts ${prefix_3dd}errts.${subj} \
+    -bucket ${prefix_3dd}stats.${subj} 
+
+
+
+cd $subjbase
+chmod -Rf 770 ${subj}.results.$suffix
+

@@ -1,0 +1,68 @@
+#!/bin/tcsh
+# 02/20/16 - Lauren White.
+# 09/15/15 - Jillian Lee Wiggins, Richard Reynolds
+# 01/03/17 - David Pagliaccio
+# 05/24/18 - Julia Linke
+# 02/10/20 - Reut Naim
+
+########################################################################################################################
+# SCRIPT SUMMARY
+########################################################################################################################
+# This script was written to go through all subjects, create a swarm script, and execute it
+# It calls h4.ppi01.ExtractROI.from.ERRTS.Morphs, which creates individual level models without censoring, but including 6 motion parameters.
+#Run this file in the command line. It will create log files for each person and one swarm file that will run the log files for all the subjects.  
+
+# USAGE: tcsh 03.doswarm.ppi01.ExtractROI.from.ERRTS.Morphs
+
+######################################################
+# SPECIFY YOUR LOCATIONS AND SUBJECTS
+######################################################
+
+#list of all subjects
+set subjects = ( sub-001 sub-002 ) 
+
+set visitlist = ( ses-1 ses-1 )
+
+
+# It is now recommended to use the amygdala ROI from the Desikan atlas;
+# The ROI needs to be in the same dimensions as your functional data (i.e. 2.5*s.5*2.5)
+# and in standard space;
+# also you should mask your seed by any mask you use in your analysus e.g. GM+90 amsk;
+# you would do this using:
+# 3dresample -dxyz 2.5 2.5 2.5 -prefix ${ROI}_resampled -inset ${ROI}  
+#set ROIs = (LAmy_50_resampled_mask_gpEPImask.0.9.FINAL_ses-1) #run LAmy first, then unhashtag out lines in h3 script before running RAmy and change swarm name below
+set ROIs = (RAmy_50_resampled_mask_gpEPImask.0.9.FINAL_ses-1)
+
+# Specify the top-most directory associated with the study
+set topdir = /top/most/directory
+
+#Specify log and swarm file info
+set scriptdir = $topdir/code/ppi
+set swarmfile = h3.B.ppi01.ExtractROI.from.ERRTS_RAmy_ses-2.swarm
+set procscript = h3.B.ppi01.ExtractROI.from.ERRTS
+
+# create empty swarm file
+echo -n "" > $swarmfile
+
+# For each of the subjects, specified in the subjects list...
+set i = 1
+foreach subj ( $subjects )
+set visit = $visitlist[$i]
+
+
+   foreach ROI ( $ROIs )
+
+   # Create a command for the swarm file for each person
+   # this line will be echoed into a swarm file. 
+   # When you run the swarm file it will run the proc script 
+   # (extracting ROIs for seed/creating ppi reg)
+        echo "cd ${scriptdir}; tcsh -xef ${procscript} $subj $visit $ROI >> ${procscript}.output" >> $swarmfile
+   end
+@ i++
+end
+
+#run swarm
+
+#swarm -t auto -g 8 --usecsh -f $swarmfile --partition norm
+
+#rm ${swarmfile} 

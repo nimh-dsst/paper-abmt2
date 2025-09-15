@@ -1,0 +1,48 @@
+#!/bin/tcsh
+
+##########################################################################################
+# BACKGROUND INFORMATION
+##########################################################################################
+
+# The errts used to create the seed/PPI regressors should come from the same model for the task analysis without censoring. This means it should include any nuisance regressors, including 6 motion parameters. Motion parameters were not included in the edDeconvolve to create the errts (ppi00) in prior scripts. To make sure we do this properly, we now replace ppi.00.IndvlRegression.nocensor (re-run 3dDeconvolve) with ppi.00.MakeNocensERRTS, which uses 3dTProject on the X.nocensor.xmat.1D file from afni_proc.
+
+
+##########################################################################################
+# GENERAL SETUP
+##########################################################################################
+
+#This is run by "tcsh 03.doswarm.ppi00.MakeNoCensorERRTS as swarm on Biowulf
+
+###############################################
+# SPECIFY YOUR LOCATIONS AND SUBJECTS
+###############################################
+
+set subj = $argv[1]
+set visit = $argv[2]
+
+#Specify the top-most directory associated with the study
+set topdir = /top/most/directory
+
+#Specify the parent directory where individual subject non-ppi analysis results reside
+set subjdir = $topdir/data_23_ap_task_NL/$subj/$visit/
+
+#Specify, where the data from your original Glm analysis can be found
+set subjdata = $subj.results
+
+
+###########################################################################################
+# THE ANALYSIS SCRIPT BEGINS HERE
+###########################################################################################
+
+# Navigate to proper location
+cd $subjdir
+
+# Specify, where the nocens results will be written
+set nocensdir = ${subj}.results.NoCensor
+if (-d $nocensdir ) \rm -fr $nocensdir
+mkdir $nocensdir
+
+# And finally, run 3dTproject
+3dTproject -input $subjdata/all_runs*.HEAD -ort $subjdata/X.nocensor.xmat.1D -polort 0 -prefix $nocensdir/errts.$subj.nocensor
+
+
